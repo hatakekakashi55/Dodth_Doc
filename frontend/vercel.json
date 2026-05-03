@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://backend-phi-seven-81.vercel.app/api/$1"
+      "destination": "https://dodth-doc.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",
