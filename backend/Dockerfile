@@ -7,6 +7,7 @@ RUN apt-get update && \
     libreoffice-writer \
     libreoffice-java-common \
     default-jre \
+    qpdf \
     fonts-liberation \
     fonts-crosextra-carlito \
     fonts-crosextra-caladea \
