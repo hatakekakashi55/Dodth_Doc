@@ -46,7 +46,13 @@ export default function ToolPage({ toolId, onBack }) {
       if (tool.hasWatermark) { formData.append('text', extra.text); formData.append('opacity', extra.opacity); }
 
       setProgress(30);
-      const response = await fetch(tool.endpoint, { method: 'POST', body: formData });
+      
+      // Determine base URL (Use Render directly for APK/Native)
+      const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
+      const baseUrl = isNative ? 'https://dodth-doc.onrender.com' : '';
+      const fullEndpoint = baseUrl + tool.endpoint;
+
+      const response = await fetch(fullEndpoint, { method: 'POST', body: formData });
       setProgress(70);
 
       if (!response.ok) {

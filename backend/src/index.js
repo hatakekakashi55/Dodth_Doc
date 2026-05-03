@@ -36,7 +36,13 @@ app.use('/api/security', securityRoutes);
 
 // --- Health Check ---
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', app: 'DODTH', version: '1.0.0', runtime: 'node.js' });
+  res.json({ 
+    status: 'ok', 
+    app: 'DODTH', 
+    version: '1.0.1', 
+    deploy_id: 'FIX_PDF_PARSE_V2',
+    runtime: 'node.js' 
+  });
 });
 
 // --- Download processed file ---
