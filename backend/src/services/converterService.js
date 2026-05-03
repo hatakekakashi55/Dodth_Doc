@@ -170,51 +170,10 @@ class ConverterService {
     });
   }
 
-  /**
-   * Convert PDF to Word (.docx)
-   * Extracts text from PDF and creates a structured Word document.
-   */
   static async pdfToWord(inputPath, outputPath) {
-    // Use pdf-parse for text extraction
-    const pdfParse = require('pdf-parse');
-    const pdfBuffer = fs.readFileSync(inputPath);
-    const data = await pdfParse(pdfBuffer);
-
-    // Create a simple docx using a minimal approach
-    // Since we don't have a full docx builder, create a basic one
-    const { Document, Paragraph, TextRun, Packer, HeadingLevel } = require('docx');
-
-    const paragraphs = data.text.split('\n').map(line => {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        return new Paragraph({ spacing: { after: 120 } });
-      }
-
-      // Detect headings (lines that are all caps or short)
-      const isHeading = trimmed.length < 80 && trimmed === trimmed.toUpperCase() && trimmed.length > 3;
-
-      return new Paragraph({
-        heading: isHeading ? HeadingLevel.HEADING_2 : undefined,
-        children: [
-          new TextRun({
-            text: trimmed,
-            bold: isHeading,
-            size: isHeading ? 28 : 22,
-            font: 'Calibri',
-          }),
-        ],
-      });
-    });
-
-    const doc = new Document({
-      sections: [{
-        properties: {},
-        children: paragraphs,
-      }],
-    });
-
-    const buffer = await Packer.toBuffer(doc);
-    fs.writeFileSync(outputPath, buffer);
+    const inputBuf = fs.readFileSync(inputPath);
+    const docxBuf = await libre.convertAsync(inputBuf, '.docx', undefined);
+    fs.writeFileSync(outputPath, docxBuf);
   }
 }
 

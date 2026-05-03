@@ -76,14 +76,52 @@ export default function ToolPage({ toolId, onBack }) {
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!resultBlob) return;
-    const url = URL.createObjectURL(resultBlob);
-    const a = document.createElement('a');
-    a.href = url; a.download = resultName;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+
+    // Check if we are running in a native APK environment
+    const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
+
+    if (isNative) {
+      try {
+        const { Filesystem, Directory } = await import('@capacitor/filesystem');
+        const { Share } = await import('@capacitor/share');
+
+        // Convert Blob to Base64
+        const reader = new FileReader();
+        reader.readAsDataURL(resultBlob);
+        reader.onloadend = async () => {
+          const base64Data = reader.result.split(',')[1];
+          
+          // Save to temporary storage
+          const savedFile = await Filesystem.writeFile({
+            path: resultName,
+            data: base64Data,
+            directory: Directory.Cache,
+          });
+
+          // Open native share/save dialog
+          await Share.share({
+            title: resultName,
+            text: 'Download processed file',
+            url: savedFile.uri,
+            dialogTitle: 'Save File',
+          });
+        };
+      } catch (err) {
+        alert('Native download failed: ' + err.message);
+      }
+    } else {
+      // Standard browser download
+      const url = URL.createObjectURL(resultBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = resultName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
   const reset = () => { setFiles([]); setStatus('idle'); setProgress(0); setError(''); setResultBlob(null); };
