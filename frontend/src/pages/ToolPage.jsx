@@ -69,7 +69,13 @@ export default function ToolPage({ toolId, onBack }) {
       }
       if (!filename.includes('.')) {
         const ct = response.headers.get('content-type') || '';
-        filename += ct.includes('zip') ? '.zip' : ct.includes('word') ? '.docx' : '.pdf';
+        if (ct.includes('zip')) filename += '.zip';
+        else if (ct.includes('wordprocessingml') || ct.includes('msword')) filename += '.docx';
+        else if (ct.includes('spreadsheetml') || ct.includes('excel')) filename += '.xlsx';
+        else if (ct.includes('presentationml') || ct.includes('powerpoint')) filename += '.pptx';
+        else if (ct.includes('jpeg') || ct.includes('jpg')) filename += '.jpg';
+        else if (ct.includes('png')) filename += '.png';
+        else filename += '.pdf';
       }
 
       setResultBlob(blob);
@@ -99,23 +105,17 @@ export default function ToolPage({ toolId, onBack }) {
         reader.onloadend = async () => {
           const base64Data = reader.result.split(',')[1];
           
-          // Save to temporary storage
-          const savedFile = await Filesystem.writeFile({
+          // Save to Documents storage
+          await Filesystem.writeFile({
             path: resultName,
             data: base64Data,
-            directory: Directory.Cache,
+            directory: Directory.Documents,
           });
 
-          // Open native share/save dialog
-          await Share.share({
-            title: resultName,
-            text: 'Download processed file',
-            url: savedFile.uri,
-            dialogTitle: 'Save File',
-          });
+          alert('✅ File saved to your Documents folder!');
         };
       } catch (err) {
-        alert('Native download failed: ' + err.message);
+        alert('Download failed: ' + err.message);
       }
     } else {
       // Standard browser download

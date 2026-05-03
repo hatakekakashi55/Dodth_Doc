@@ -8,6 +8,8 @@ RUN apt-get update && \
     libreoffice-java-common \
     default-jre \
     qpdf \
+    tesseract-ocr \
+    ocrmypdf \
     fonts-liberation \
     fonts-crosextra-carlito \
     fonts-crosextra-caladea \

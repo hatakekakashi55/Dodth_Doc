@@ -88,6 +88,37 @@ router.post('/rotate', upload.single('file'), async (req, res) => {
   }
 });
 
+// --- Add Page Numbers ---
+router.post('/add-page-numbers', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ detail: 'No file uploaded' });
+    const outputDir = getOutputDir(req.sessionId);
+    const outputFilename = path.basename(req.file.originalname, '.pdf') + '_numbered.pdf';
+    const outputPath = path.join(outputDir, outputFilename);
+    await organizerService.addPageNumbers(req.file.path, outputPath);
+    res.download(outputPath, outputFilename);
+  } catch (err) {
+    console.error('Add page numbers error:', err);
+    res.status(500).json({ detail: `Operation failed: ${err.message}` });
+  }
+});
+
+// --- Delete Pages ---
+router.post('/delete-pages', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ detail: 'No file uploaded' });
+    const pages = req.body.pages || ''; // comma separated string
+    const outputDir = getOutputDir(req.sessionId);
+    const outputFilename = path.basename(req.file.originalname, '.pdf') + '_modified.pdf';
+    const outputPath = path.join(outputDir, outputFilename);
+    await organizerService.deletePages(req.file.path, outputPath, pages);
+    res.download(outputPath, outputFilename);
+  } catch (err) {
+    console.error('Delete pages error:', err);
+    res.status(500).json({ detail: `Operation failed: ${err.message}` });
+  }
+});
+
 // --- Compress PDF ---
 router.post('/compress', upload.single('file'), async (req, res) => {
   try {

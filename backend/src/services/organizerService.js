@@ -5,7 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { PDFDocument, degrees } = require('pdf-lib');
+const { PDFDocument, degrees, StandardFonts, rgb } = require('pdf-lib');
 const archiver = require('archiver');
 
 class OrganizerService {
@@ -150,8 +150,54 @@ class OrganizerService {
 
     const compressedSize = compressedBytes.length;
     const reduction = ((1 - compressedSize / originalSize) * 100).toFixed(1);
-
     return { originalSize, compressedSize, reduction: `${reduction}%` };
+  }
+
+  /**
+   * Add page numbers to all pages in a PDF.
+   */
+  static async addPageNumbers(inputPath, outputPath) {
+    const pdfBytes = fs.readFileSync(inputPath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const pages = pdfDoc.getPages();
+
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      const { width } = page.getSize();
+      page.drawText(`${i + 1} / ${pages.length}`, {
+        x: width / 2 - 20,
+        y: 20,
+        size: 12,
+        font,
+        color: rgb(0.5, 0.5, 0.5),
+      });
+    }
+
+    const resultBytes = await pdfDoc.save();
+    fs.writeFileSync(outputPath, resultBytes);
+    return { status: 'success', pageCount: pages.length };
+  }
+
+  /**
+   * Delete specific pages from a PDF.
+   */
+  static async deletePages(inputPath, outputPath, pagesToDelete) {
+    const pdfBytes = fs.readFileSync(inputPath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    
+    // Parse pages to delete (e.g., "1,3,5")
+    const indicesToRemove = pagesToDelete.split(',').map(p => parseInt(p.trim()) - 1).sort((a, b) => b - a);
+    
+    for (const idx of indicesToRemove) {
+      if (idx >= 0 && idx < pdfDoc.getPageCount()) {
+        pdfDoc.removePage(idx);
+      }
+    }
+
+    const resultBytes = await pdfDoc.save();
+    fs.writeFileSync(outputPath, resultBytes);
+    return { status: 'success', remainingPages: pdfDoc.getPageCount() };
   }
 }
 

@@ -105,61 +105,67 @@ class ConverterService {
 
   /**
    * Convert PDF pages to JPG images, packaged as a zip.
-   * Uses pdf-lib to extract pages and sharp to render.
+   * Uses LibreOffice to render actual page images.
    */
   static async pdfToImages(inputPath, outputDir, zipPath) {
-    // Since pdf-lib can't render to images, we'll extract embedded images
-    // and create a simple visual representation
+    const { exec } = require('child_process');
+    const utilMod = require('util');
+    const execPromise = utilMod.promisify(exec);
+
     const pdfBuffer = fs.readFileSync(inputPath);
     const pdfDoc = await PDFDocument.load(pdfBuffer);
     const pageCount = pdfDoc.getPageCount();
-
     const imageFiles = [];
 
+    // Split PDF into individual pages, then convert each to JPG
     for (let i = 0; i < pageCount; i++) {
-      // Create a new PDF with just this page
       const singlePagePdf = await PDFDocument.create();
       const [copiedPage] = await singlePagePdf.copyPages(pdfDoc, [i]);
       singlePagePdf.addPage(copiedPage);
 
       const singlePdfBytes = await singlePagePdf.save();
-      const pdfPath = path.join(outputDir, `page_${i + 1}.pdf`);
-      fs.writeFileSync(pdfPath, singlePdfBytes);
+      const pagePdfPath = path.join(outputDir, `_temp_page_${i + 1}.pdf`);
+      fs.writeFileSync(pagePdfPath, singlePdfBytes);
 
-      // Create a placeholder image with page info using sharp
-      const page = pdfDoc.getPage(i);
-      const { width, height } = page.getSize();
-      const imgWidth = Math.round(width * 2);
-      const imgHeight = Math.round(height * 2);
+      try {
+        // Use soffice to convert the single-page PDF to JPG
+        await execPromise(`soffice --headless --convert-to jpg --outdir "${outputDir}" "${pagePdfPath}"`);
+        const convertedName = `_temp_page_${i + 1}.jpg`;
+        const convertedPath = path.join(outputDir, convertedName);
 
-      const svgImage = `
-        <svg width="${imgWidth}" height="${imgHeight}" xmlns="http://www.w3.org/2000/svg">
+        if (fs.existsSync(convertedPath)) {
+          const finalName = `page_${i + 1}.jpg`;
+          const finalPath = path.join(outputDir, finalName);
+          fs.renameSync(convertedPath, finalPath);
+          imageFiles.push(finalPath);
+        }
+      } catch (convErr) {
+        // Fallback: create a placeholder if soffice fails for this page
+        const page = pdfDoc.getPage(i);
+        const { width, height } = page.getSize();
+        const imgWidth = Math.round(Math.max(width * 2, 200));
+        const imgHeight = Math.round(Math.max(height * 2, 200));
+
+        const svgImage = `<svg width="${imgWidth}" height="${imgHeight}" xmlns="http://www.w3.org/2000/svg">
           <rect width="100%" height="100%" fill="white"/>
-          <rect x="2" y="2" width="${imgWidth - 4}" height="${imgHeight - 4}" fill="none" stroke="#ccc" stroke-width="2"/>
-          <text x="50%" y="45%" text-anchor="middle" font-family="Arial" font-size="32" fill="#333">Page ${i + 1}</text>
-          <text x="50%" y="55%" text-anchor="middle" font-family="Arial" font-size="18" fill="#666">${Math.round(width)} × ${Math.round(height)} pts</text>
-          <text x="50%" y="65%" text-anchor="middle" font-family="Arial" font-size="14" fill="#999">PDF extracted by DODTH</text>
-        </svg>
-      `;
+          <text x="50%" y="50%" text-anchor="middle" font-family="Arial" font-size="24" fill="#333">Page ${i + 1}</text>
+        </svg>`;
 
-      const imgFilename = `page_${i + 1}.jpg`;
-      const imgPath = path.join(outputDir, imgFilename);
+        const imgPath = path.join(outputDir, `page_${i + 1}.jpg`);
+        await sharp(Buffer.from(svgImage)).jpeg({ quality: 90 }).toFile(imgPath);
+        imageFiles.push(imgPath);
+      }
 
-      await sharp(Buffer.from(svgImage))
-        .jpeg({ quality: 90 })
-        .toFile(imgPath);
-
-      imageFiles.push(imgPath);
+      // Cleanup temp PDF
+      try { fs.unlinkSync(pagePdfPath); } catch (_) {}
     }
 
     // Create zip archive
     await new Promise((resolve, reject) => {
       const output = fs.createWriteStream(zipPath);
       const archive = archiver('zip', { zlib: { level: 6 } });
-
       output.on('close', resolve);
       archive.on('error', reject);
-
       archive.pipe(output);
       for (const imgPath of imageFiles) {
         archive.file(imgPath, { name: path.basename(imgPath) });
@@ -174,20 +180,76 @@ class ConverterService {
     const execPromise = util.promisify(exec);
 
     try {
-      // Use direct soffice command with explicit MS Word 2007 XML filter for PDF to Word
       await execPromise(`soffice --headless --convert-to docx:"MS Word 2007 XML" --outdir "${path.dirname(outputPath)}" "${inputPath}"`);
-      
-      // LibreOffice might name the output file slightly differently than our outputPath
-      // (e.g., input.docx instead of outputFilename.docx)
       const expectedName = path.basename(inputPath, path.extname(inputPath)) + '.docx';
       const actualPath = path.join(path.dirname(outputPath), expectedName);
-      
-      if (fs.existsSync(actualPath) && actualPath !== outputPath) {
-        fs.renameSync(actualPath, outputPath);
-      }
+      if (fs.existsSync(actualPath) && actualPath !== outputPath) fs.renameSync(actualPath, outputPath);
     } catch (err) {
       console.error('Soffice PDF to Word Error:', err);
-      throw new Error('Failed to convert PDF to Word. Ensure it is not password protected.');
+      throw new Error('Failed to convert PDF to Word.');
+    }
+  }
+
+  static async pdfToPpt(inputPath, outputPath) {
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execPromise = util.promisify(exec);
+
+    try {
+      await execPromise(`soffice --headless --convert-to pptx:"Impress MS PowerPoint 2007 XML" --outdir "${path.dirname(outputPath)}" "${inputPath}"`);
+      const expectedName = path.basename(inputPath, path.extname(inputPath)) + '.pptx';
+      const actualPath = path.join(path.dirname(outputPath), expectedName);
+      if (fs.existsSync(actualPath) && actualPath !== outputPath) fs.renameSync(actualPath, outputPath);
+    } catch (err) {
+      console.error('Soffice PDF to PPT Error:', err);
+      throw new Error('Failed to convert PDF to PowerPoint.');
+    }
+  }
+
+  static async pdfToExcel(inputPath, outputPath) {
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execPromise = util.promisify(exec);
+
+    try {
+      await execPromise(`soffice --headless --convert-to xlsx:"Calc MS Excel 2007 XML" --outdir "${path.dirname(outputPath)}" "${inputPath}"`);
+      const expectedName = path.basename(inputPath, path.extname(inputPath)) + '.xlsx';
+      const actualPath = path.join(path.dirname(outputPath), expectedName);
+      if (fs.existsSync(actualPath) && actualPath !== outputPath) fs.renameSync(actualPath, outputPath);
+    } catch (err) {
+      console.error('Soffice PDF to Excel Error:', err);
+      throw new Error('Failed to convert PDF to Excel.');
+    }
+  }
+
+  static async htmlToPdf(htmlOrUrl, outputPath) {
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execPromise = util.promisify(exec);
+
+    try {
+      // Use LibreOffice to convert HTML/URL to PDF
+      await execPromise(`soffice --headless --convert-to pdf --outdir "${path.dirname(outputPath)}" "${htmlOrUrl}"`);
+      const expectedName = path.basename(htmlOrUrl, path.extname(htmlOrUrl)) + '.pdf';
+      const actualPath = path.join(path.dirname(outputPath), expectedName);
+      if (fs.existsSync(actualPath) && actualPath !== outputPath) fs.renameSync(actualPath, outputPath);
+    } catch (err) {
+      console.error('Soffice HTML to PDF Error:', err);
+      throw new Error('Failed to convert HTML to PDF.');
+    }
+  }
+
+  static async runOcr(inputPath, outputPath) {
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execPromise = util.promisify(exec);
+
+    try {
+      // ocrmypdf --force-ocr input.pdf output.pdf
+      await execPromise(`ocrmypdf --force-ocr "${inputPath}" "${outputPath}"`);
+    } catch (err) {
+      console.error('OCR Error:', err);
+      throw new Error('Failed to run OCR on PDF.');
     }
   }
 }
