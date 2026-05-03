@@ -169,10 +169,26 @@ class ConverterService {
   }
 
   static async pdfToWord(inputPath, outputPath) {
-    const inputBuf = fs.readFileSync(inputPath);
-    // Use 'docx' instead of '.docx' for more reliable filter matching
-    const docxBuf = await libre.convertAsync(inputBuf, 'docx', undefined);
-    fs.writeFileSync(outputPath, docxBuf);
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execPromise = util.promisify(exec);
+
+    try {
+      // Use direct soffice command with explicit MS Word 2007 XML filter for PDF to Word
+      await execPromise(`soffice --headless --convert-to docx:"MS Word 2007 XML" --outdir "${path.dirname(outputPath)}" "${inputPath}"`);
+      
+      // LibreOffice might name the output file slightly differently than our outputPath
+      // (e.g., input.docx instead of outputFilename.docx)
+      const expectedName = path.basename(inputPath, path.extname(inputPath)) + '.docx';
+      const actualPath = path.join(path.dirname(outputPath), expectedName);
+      
+      if (fs.existsSync(actualPath) && actualPath !== outputPath) {
+        fs.renameSync(actualPath, outputPath);
+      }
+    } catch (err) {
+      console.error('Soffice PDF to Word Error:', err);
+      throw new Error('Failed to convert PDF to Word. Ensure it is not password protected.');
+    }
   }
 }
 
