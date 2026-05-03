@@ -1,9 +1,12 @@
 FROM node:20-slim
 
-# Install LibreOffice and fonts for high fidelity document conversion
+# Install LibreOffice, Java (required for some filters), and fonts
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libreoffice \
+    libreoffice-writer \
+    libreoffice-java-common \
+    default-jre \
     fonts-liberation \
     fonts-crosextra-carlito \
     fonts-crosextra-caladea \

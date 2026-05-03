@@ -170,7 +170,8 @@ class ConverterService {
 
   static async pdfToWord(inputPath, outputPath) {
     const inputBuf = fs.readFileSync(inputPath);
-    const docxBuf = await libre.convertAsync(inputBuf, '.docx', undefined);
+    // Use 'docx' instead of '.docx' for more reliable filter matching
+    const docxBuf = await libre.convertAsync(inputBuf, 'docx', undefined);
     fs.writeFileSync(outputPath, docxBuf);
   }
 }
