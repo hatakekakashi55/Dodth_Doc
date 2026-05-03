@@ -203,12 +203,132 @@ class ConverterService {
     const execPromise = utilMod.promisify(exec);
     const outDir = path.dirname(outputPath);
 
+    const pdfBuffer = fs.readFileSync(inputPath);
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const pageCount = pdfDoc.getPageCount();
+
+    // For single-page PDFs, use the direct approach
+    if (pageCount === 1) {
+      try {
+        const cmd = this._sofficeCmd(`--infilter="writer_pdf_import" --convert-to docx --outdir "${outDir}" "${inputPath}"`);
+        await execPromise(cmd, { timeout: 120000 });
+        this._renameSofficeOutput(outDir, inputPath, 'docx', outputPath);
+        return;
+      } catch (err) {
+        console.error('PDF to Word (single page) Error:', err.message || err);
+        throw new Error('Failed to convert PDF to Word.');
+      }
+    }
+
+    // For multi-page PDFs: split → convert each → merge with page breaks
+    const tempDocxPaths = [];
+
     try {
-      // Force Writer to import the PDF (not Draw), then export as DOCX
-      const cmd = this._sofficeCmd(`--infilter="writer_pdf_import" --convert-to docx --outdir "${outDir}" "${inputPath}"`);
-      await execPromise(cmd, { timeout: 120000 });
-      this._renameSofficeOutput(outDir, inputPath, 'docx', outputPath);
+      for (let i = 0; i < pageCount; i++) {
+        // Extract single page
+        const singlePdf = await PDFDocument.create();
+        const [copiedPage] = await singlePdf.copyPages(pdfDoc, [i]);
+        singlePdf.addPage(copiedPage);
+        const singlePdfBytes = await singlePdf.save();
+
+        const tempPdfPath = path.join(outDir, `_page_${i + 1}.pdf`);
+        fs.writeFileSync(tempPdfPath, singlePdfBytes);
+
+        // Convert single page PDF to DOCX
+        try {
+          const cmd = this._sofficeCmd(`--infilter="writer_pdf_import" --convert-to docx --outdir "${outDir}" "${tempPdfPath}"`);
+          await execPromise(cmd, { timeout: 60000 });
+          const docxPath = path.join(outDir, `_page_${i + 1}.docx`);
+          if (fs.existsSync(docxPath)) {
+            tempDocxPaths.push(docxPath);
+          }
+        } catch (pageErr) {
+          console.error(`Page ${i + 1} conversion failed:`, pageErr.message);
+        }
+
+        // Cleanup temp PDF
+        try { fs.unlinkSync(tempPdfPath); } catch (_) {}
+      }
+
+      if (tempDocxPaths.length === 0) {
+        throw new Error('No pages could be converted.');
+      }
+
+      // Merge all single-page DOCXes into one with page breaks
+      const { Document, Packer, Paragraph, PageBreak, ImageRun } = require('docx');
+      const sections = [];
+
+      for (let i = 0; i < tempDocxPaths.length; i++) {
+        // Read each DOCX and convert its content to an image for perfect layout
+        const pagePdfPath = path.join(outDir, `_render_${i + 1}.pdf`);
+        
+        // Re-extract the page as PDF for image rendering
+        const singlePdf2 = await PDFDocument.create();
+        const [cp] = await singlePdf2.copyPages(pdfDoc, [i]);
+        singlePdf2.addPage(cp);
+        fs.writeFileSync(pagePdfPath, await singlePdf2.save());
+        
+        // Convert to PNG for embedding
+        const pngPath = path.join(outDir, `_render_${i + 1}.png`);
+        try {
+          const imgCmd = this._sofficeCmd(`--convert-to png --outdir "${outDir}" "${pagePdfPath}"`);
+          await execPromise(imgCmd, { timeout: 60000 });
+        } catch (_) {}
+
+        const page = pdfDoc.getPage(i);
+        const { width, height } = page.getSize();
+
+        if (fs.existsSync(pngPath)) {
+          const imgBuffer = fs.readFileSync(pngPath);
+          sections.push({
+            properties: {
+              page: {
+                size: { width: Math.round(width * 20), height: Math.round(height * 20) },
+                margin: { top: 0, bottom: 0, left: 0, right: 0 },
+              },
+            },
+            children: [
+              new Paragraph({
+                children: [
+                  new ImageRun({
+                    data: imgBuffer,
+                    transformation: {
+                      width: Math.round(width * 0.75),
+                      height: Math.round(height * 0.75),
+                    },
+                    type: 'png',
+                  }),
+                ],
+              }),
+            ],
+          });
+          try { fs.unlinkSync(pngPath); } catch (_) {}
+        }
+        try { fs.unlinkSync(pagePdfPath); } catch (_) {}
+      }
+
+      // If we got image-based sections, build the DOCX
+      if (sections.length > 0) {
+        const doc = new Document({ sections });
+        const buffer = await Packer.toBuffer(doc);
+        fs.writeFileSync(outputPath, buffer);
+      } else {
+        // Fallback: just use the first converted DOCX
+        if (tempDocxPaths.length > 0) {
+          fs.copyFileSync(tempDocxPaths[0], outputPath);
+        }
+      }
+
+      // Cleanup temp DOCX files
+      for (const p of tempDocxPaths) {
+        try { fs.unlinkSync(p); } catch (_) {}
+      }
+
     } catch (err) {
+      // Cleanup on error
+      for (const p of tempDocxPaths) {
+        try { fs.unlinkSync(p); } catch (_) {}
+      }
       console.error('PDF to Word Error:', err.message || err);
       throw new Error('Failed to convert PDF to Word.');
     }
