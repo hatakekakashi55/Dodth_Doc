@@ -80,12 +80,9 @@ setInterval(() => {
   });
 }, 30 * 60 * 1000); // Run every 30 minutes
 
-// --- Start Server (Local only) ---
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`\n🚀 DODTH Backend running on http://localhost:${PORT}`);
-  });
-}
+// --- Start Server ---
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 DODTH Backend running on port ${PORT}`);
+});
 
-// --- Vercel Serverless Export ---
 module.exports = app;
