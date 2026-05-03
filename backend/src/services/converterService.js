@@ -129,7 +129,8 @@ class ConverterService {
 
       try {
         // Use soffice to convert the single-page PDF to JPG
-        await execPromise(`soffice --headless --convert-to jpg --outdir "${outputDir}" "${pagePdfPath}"`);
+        const cmd = ConverterService._sofficeCmd(`--convert-to jpg --outdir "${outputDir}" "${pagePdfPath}"`);
+        await execPromise(cmd, { timeout: 60000 });
         const convertedName = `_temp_page_${i + 1}.jpg`;
         const convertedPath = path.join(outputDir, convertedName);
 
@@ -174,81 +175,109 @@ class ConverterService {
     });
   }
 
+  /**
+   * Helper: run soffice with a unique user profile to avoid concurrency conflicts.
+   */
+  static _sofficeCmd(extraArgs) {
+    const profileDir = `/tmp/soffice_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    return `soffice --headless -env:UserInstallation="file://${profileDir}" ${extraArgs}`;
+  }
+
+  /**
+   * Helper: after soffice converts, find the output file and rename to desired path.
+   */
+  static _renameSofficeOutput(outputDir, inputPath, targetExt, outputPath) {
+    const baseName = path.basename(inputPath, path.extname(inputPath));
+    const actualPath = path.join(outputDir, baseName + '.' + targetExt);
+    if (fs.existsSync(actualPath) && actualPath !== outputPath) {
+      fs.renameSync(actualPath, outputPath);
+    }
+    if (!fs.existsSync(outputPath)) {
+      throw new Error(`Conversion produced no output file.`);
+    }
+  }
+
   static async pdfToWord(inputPath, outputPath) {
     const { exec } = require('child_process');
-    const util = require('util');
-    const execPromise = util.promisify(exec);
+    const utilMod = require('util');
+    const execPromise = utilMod.promisify(exec);
+    const outDir = path.dirname(outputPath);
 
     try {
-      await execPromise(`soffice --headless --convert-to docx:"MS Word 2007 XML" --outdir "${path.dirname(outputPath)}" "${inputPath}"`);
-      const expectedName = path.basename(inputPath, path.extname(inputPath)) + '.docx';
-      const actualPath = path.join(path.dirname(outputPath), expectedName);
-      if (fs.existsSync(actualPath) && actualPath !== outputPath) fs.renameSync(actualPath, outputPath);
+      // Force Writer to import the PDF (not Draw), then export as DOCX
+      const cmd = this._sofficeCmd(`--infilter="writer_pdf_import" --convert-to docx --outdir "${outDir}" "${inputPath}"`);
+      await execPromise(cmd, { timeout: 120000 });
+      this._renameSofficeOutput(outDir, inputPath, 'docx', outputPath);
     } catch (err) {
-      console.error('Soffice PDF to Word Error:', err);
+      console.error('PDF to Word Error:', err.message || err);
       throw new Error('Failed to convert PDF to Word.');
     }
   }
 
   static async pdfToPpt(inputPath, outputPath) {
     const { exec } = require('child_process');
-    const util = require('util');
-    const execPromise = util.promisify(exec);
+    const utilMod = require('util');
+    const execPromise = utilMod.promisify(exec);
+    const outDir = path.dirname(outputPath);
 
     try {
-      await execPromise(`soffice --headless --convert-to pptx:"Impress MS PowerPoint 2007 XML" --outdir "${path.dirname(outputPath)}" "${inputPath}"`);
-      const expectedName = path.basename(inputPath, path.extname(inputPath)) + '.pptx';
-      const actualPath = path.join(path.dirname(outputPath), expectedName);
-      if (fs.existsSync(actualPath) && actualPath !== outputPath) fs.renameSync(actualPath, outputPath);
+      const cmd = this._sofficeCmd(`--convert-to pptx --outdir "${outDir}" "${inputPath}"`);
+      await execPromise(cmd, { timeout: 120000 });
+      this._renameSofficeOutput(outDir, inputPath, 'pptx', outputPath);
     } catch (err) {
-      console.error('Soffice PDF to PPT Error:', err);
+      console.error('PDF to PPT Error:', err.message || err);
       throw new Error('Failed to convert PDF to PowerPoint.');
     }
   }
 
   static async pdfToExcel(inputPath, outputPath) {
     const { exec } = require('child_process');
-    const util = require('util');
-    const execPromise = util.promisify(exec);
+    const utilMod = require('util');
+    const execPromise = utilMod.promisify(exec);
+    const outDir = path.dirname(outputPath);
 
     try {
-      await execPromise(`soffice --headless --convert-to xlsx:"Calc MS Excel 2007 XML" --outdir "${path.dirname(outputPath)}" "${inputPath}"`);
-      const expectedName = path.basename(inputPath, path.extname(inputPath)) + '.xlsx';
-      const actualPath = path.join(path.dirname(outputPath), expectedName);
-      if (fs.existsSync(actualPath) && actualPath !== outputPath) fs.renameSync(actualPath, outputPath);
+      const cmd = this._sofficeCmd(`--infilter="calc_pdf_import" --convert-to xlsx --outdir "${outDir}" "${inputPath}"`);
+      await execPromise(cmd, { timeout: 120000 });
+      this._renameSofficeOutput(outDir, inputPath, 'xlsx', outputPath);
     } catch (err) {
-      console.error('Soffice PDF to Excel Error:', err);
-      throw new Error('Failed to convert PDF to Excel.');
+      // Fallback: try without specific filter
+      try {
+        const cmd2 = this._sofficeCmd(`--convert-to xlsx --outdir "${outDir}" "${inputPath}"`);
+        await execPromise(cmd2, { timeout: 120000 });
+        this._renameSofficeOutput(outDir, inputPath, 'xlsx', outputPath);
+      } catch (err2) {
+        console.error('PDF to Excel Error:', err2.message || err2);
+        throw new Error('Failed to convert PDF to Excel.');
+      }
     }
   }
 
-  static async htmlToPdf(htmlOrUrl, outputPath) {
+  static async htmlToPdf(htmlPath, outputPath) {
     const { exec } = require('child_process');
-    const util = require('util');
-    const execPromise = util.promisify(exec);
+    const utilMod = require('util');
+    const execPromise = utilMod.promisify(exec);
+    const outDir = path.dirname(outputPath);
 
     try {
-      // Use LibreOffice to convert HTML/URL to PDF
-      await execPromise(`soffice --headless --convert-to pdf --outdir "${path.dirname(outputPath)}" "${htmlOrUrl}"`);
-      const expectedName = path.basename(htmlOrUrl, path.extname(htmlOrUrl)) + '.pdf';
-      const actualPath = path.join(path.dirname(outputPath), expectedName);
-      if (fs.existsSync(actualPath) && actualPath !== outputPath) fs.renameSync(actualPath, outputPath);
+      const cmd = this._sofficeCmd(`--convert-to pdf --outdir "${outDir}" "${htmlPath}"`);
+      await execPromise(cmd, { timeout: 120000 });
+      this._renameSofficeOutput(outDir, htmlPath, 'pdf', outputPath);
     } catch (err) {
-      console.error('Soffice HTML to PDF Error:', err);
+      console.error('HTML to PDF Error:', err.message || err);
       throw new Error('Failed to convert HTML to PDF.');
     }
   }
 
   static async runOcr(inputPath, outputPath) {
     const { exec } = require('child_process');
-    const util = require('util');
-    const execPromise = util.promisify(exec);
+    const utilMod = require('util');
+    const execPromise = utilMod.promisify(exec);
 
     try {
-      // ocrmypdf --force-ocr input.pdf output.pdf
-      await execPromise(`ocrmypdf --force-ocr "${inputPath}" "${outputPath}"`);
+      await execPromise(`ocrmypdf --force-ocr "${inputPath}" "${outputPath}"`, { timeout: 180000 });
     } catch (err) {
-      console.error('OCR Error:', err);
+      console.error('OCR Error:', err.message || err);
       throw new Error('Failed to run OCR on PDF.');
     }
   }
