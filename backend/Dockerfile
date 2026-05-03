@@ -5,7 +5,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libreoffice \
     fonts-liberation \
-    ttf-mscorefonts-installer \
+    fonts-crosextra-carlito \
+    fonts-crosextra-caladea \
     fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
