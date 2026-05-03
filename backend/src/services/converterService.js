@@ -1,13 +1,11 @@
 /**
  * DODTH - Converter Service
- * Core document conversion logic using pdf-lib, mammoth, pdfkit, xlsx, sharp.
+ * Core document conversion logic using LibreOffice, pdf-lib, xlsx, sharp.
  */
 
 const fs = require('fs');
 const path = require('path');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
-const mammoth = require('mammoth');
-const PDFKit = require('pdfkit');
 const XLSX = require('xlsx');
 const sharp = require('sharp');
 const archiver = require('archiver');
