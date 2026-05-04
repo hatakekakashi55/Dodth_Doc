@@ -1,166 +1,169 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
-import * as fabric from 'fabric';
+import { Canvas as FabricCanvas, IText, PencilBrush, FabricImage } from 'fabric';
 import { PDFDocument } from 'pdf-lib';
-import { Save, Download, X, Type, PenTool, Highlighter, MousePointer2 } from 'lucide-react';
+import { Download, X, Type, PenTool, Highlighter, MousePointer2 } from 'lucide-react';
 
-// Configure PDF.js worker using local Vite asset
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+// Configure PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.mjs',
+  import.meta.url
+).toString();
 
 export default function PdfEditor({ pdfBytes, originalFile, onClose }) {
   const containerRef = useRef(null);
-  const [fabricCanvas, setFabricCanvas] = useState(null);
+  const canvasRef = useRef(null); // Fabric canvas instance
   const [pdfDoc, setPdfDoc] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [saving, setSaving] = useState(false);
-  const [activeTool, setActiveTool] = useState('select'); // select, text, draw, highlight
+  const [activeTool, setActiveTool] = useState('select');
+  const [loaded, setLoaded] = useState(false);
 
   // Initialize PDF and Canvas
   useEffect(() => {
-    let canvasInst;
-    
-    const initPdf = async () => {
+    let disposed = false;
+
+    const init = async () => {
       try {
         const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(pdfBytes) });
         const pdf = await loadingTask.promise;
+        if (disposed) return;
         setPdfDoc(pdf);
         setTotalPages(pdf.numPages);
-        
-        renderPage(pdf, 1);
+
+        // Render first page
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 1.5 });
+
+        // Render PDF page to an offscreen canvas
+        const offscreen = document.createElement('canvas');
+        offscreen.width = viewport.width;
+        offscreen.height = viewport.height;
+        const ctx = offscreen.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        if (disposed) return;
+
+        // Create Fabric canvas
+        if (containerRef.current) {
+          containerRef.current.innerHTML = '';
+          const el = document.createElement('canvas');
+          el.id = 'pdf-fabric-canvas';
+          el.width = viewport.width;
+          el.height = viewport.height;
+          containerRef.current.appendChild(el);
+
+          const fc = new FabricCanvas('pdf-fabric-canvas', {
+            width: viewport.width,
+            height: viewport.height,
+          });
+
+          // Set PDF render as background image
+          const dataUrl = offscreen.toDataURL('image/png');
+          const bgImg = await FabricImage.fromURL(dataUrl);
+          bgImg.scaleX = viewport.width / bgImg.width;
+          bgImg.scaleY = viewport.height / bgImg.height;
+          fc.backgroundImage = bgImg;
+          fc.renderAll();
+
+          canvasRef.current = fc;
+          setLoaded(true);
+        }
       } catch (err) {
-        console.error("Error loading PDF:", err);
+        console.error('Error loading PDF:', err);
+        alert('Could not load PDF for editing.');
       }
     };
 
-    const renderPage = async (pdf, pageNum) => {
-      const page = await pdf.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 1.5 });
-
-      // Setup hidden canvas for PDF rendering
-      const pdfCanvas = document.createElement('canvas');
-      const context = pdfCanvas.getContext('2d');
-      pdfCanvas.height = viewport.height;
-      pdfCanvas.width = viewport.width;
-
-      const renderContext = {
-        canvasContext: context,
-        viewport: viewport
-      };
-      
-      await page.render(renderContext).promise;
-
-      // Setup Fabric canvas
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
-        const fabCanvasEl = document.createElement('canvas');
-        fabCanvasEl.id = 'fabric-canvas';
-        containerRef.current.appendChild(fabCanvasEl);
-
-        canvasInst = new fabric.Canvas('fabric-canvas', {
-          width: viewport.width,
-          height: viewport.height,
-          selection: true
-        });
-
-        // Set PDF as background
-        fabric.Image.fromURL(pdfCanvas.toDataURL('image/png'), (img) => {
-          canvasInst.setBackgroundImage(img, canvasInst.renderAll.bind(canvasInst));
-        });
-
-        setFabricCanvas(canvasInst);
-      }
-    };
-
-    initPdf();
+    init();
 
     return () => {
-      if (canvasInst) canvasInst.dispose();
+      disposed = true;
+      if (canvasRef.current) {
+        canvasRef.current.dispose();
+        canvasRef.current = null;
+      }
     };
   }, [pdfBytes]);
 
   // Handle Tool Changes
   useEffect(() => {
-    if (!fabricCanvas) return;
+    const fc = canvasRef.current;
+    if (!fc) return;
 
-    fabricCanvas.isDrawingMode = false;
-    fabricCanvas.selection = true;
-    
-    // Remove previous listeners
-    fabricCanvas.off('mouse:down');
+    fc.isDrawingMode = false;
+    fc.selection = true;
+    fc.off('mouse:down');
 
     if (activeTool === 'draw') {
-      fabricCanvas.isDrawingMode = true;
-      fabricCanvas.freeDrawingBrush.color = 'red';
-      fabricCanvas.freeDrawingBrush.width = 3;
+      fc.isDrawingMode = true;
+      fc.freeDrawingBrush = new PencilBrush(fc);
+      fc.freeDrawingBrush.color = '#e53e3e';
+      fc.freeDrawingBrush.width = 3;
     } else if (activeTool === 'highlight') {
-      fabricCanvas.isDrawingMode = true;
-      fabricCanvas.freeDrawingBrush.color = 'rgba(255, 255, 0, 0.4)';
-      fabricCanvas.freeDrawingBrush.width = 20;
+      fc.isDrawingMode = true;
+      fc.freeDrawingBrush = new PencilBrush(fc);
+      fc.freeDrawingBrush.color = 'rgba(255, 255, 0, 0.35)';
+      fc.freeDrawingBrush.width = 20;
     } else if (activeTool === 'text') {
-      fabricCanvas.selection = false;
-      fabricCanvas.on('mouse:down', (o) => {
-        const pointer = fabricCanvas.getPointer(o.e);
-        const text = new fabric.IText('Type here...', {
+      fc.selection = false;
+      fc.on('mouse:down', (o) => {
+        const pointer = fc.getScenePoint(o.e);
+        const text = new IText('Type here...', {
           left: pointer.x,
           top: pointer.y,
           fontFamily: 'Arial',
-          fontSize: 24,
-          fill: 'blue'
+          fontSize: 22,
+          fill: '#1a56db',
         });
-        fabricCanvas.add(text);
-        fabricCanvas.setActiveObject(text);
+        fc.add(text);
+        fc.setActiveObject(text);
         text.enterEditing();
         text.selectAll();
-        setActiveTool('select'); // revert to select mode
+        setActiveTool('select');
       });
     }
-  }, [activeTool, fabricCanvas]);
+  }, [activeTool, loaded]);
 
   const handleSave = async () => {
-    if (!fabricCanvas) return;
+    const fc = canvasRef.current;
+    if (!fc) return;
     setSaving(true);
     try {
-      // 1. Export annotations (without background)
-      const bg = fabricCanvas.backgroundImage;
-      fabricCanvas.backgroundImage = null;
-      const overlayDataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
-      fabricCanvas.setBackgroundImage(bg, fabricCanvas.renderAll.bind(fabricCanvas));
+      // Export annotations only (remove background temporarily)
+      const bg = fc.backgroundImage;
+      fc.backgroundImage = null;
+      fc.renderAll();
+      const overlayDataUrl = fc.toDataURL({ format: 'png', multiplier: 1 });
+      fc.backgroundImage = bg;
+      fc.renderAll();
 
-      // 2. Load original PDF with pdf-lib
+      // Load original PDF
       const pdfDocLib = await PDFDocument.load(pdfBytes);
       const pages = pdfDocLib.getPages();
-      const pageToEdit = pages[currentPage - 1]; // 0-indexed
+      const pageToEdit = pages[currentPage - 1];
 
-      // 3. Embed the overlay PNG
-      const overlayImageBytes = await fetch(overlayDataUrl).then(res => res.arrayBuffer());
-      const embeddedImage = await pdfDocLib.embedPng(overlayImageBytes);
+      // Embed overlay
+      const overlayBytes = await fetch(overlayDataUrl).then(r => r.arrayBuffer());
+      const embeddedImage = await pdfDocLib.embedPng(overlayBytes);
 
-      // 4. Draw image over the page
       const { width, height } = pageToEdit.getSize();
-      pageToEdit.drawImage(embeddedImage, {
-        x: 0,
-        y: 0,
-        width: width,
-        height: height,
-      });
+      pageToEdit.drawImage(embeddedImage, { x: 0, y: 0, width, height });
 
-      // 5. Save and download
-      const modifiedPdfBytes = await pdfDocLib.save();
-      const blob = new Blob([modifiedPdfBytes], { type: 'application/pdf' });
+      // Download
+      const modifiedBytes = await pdfDocLib.save();
+      const blob = new Blob([modifiedBytes], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
-      
       const link = document.createElement('a');
       link.href = url;
-      const baseName = originalFile.name.substring(0, originalFile.name.lastIndexOf('.'));
+      const baseName = originalFile.name.replace(/\.[^.]+$/, '');
       link.download = `${baseName}_edited.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert("Error saving PDF: " + err.message);
+      alert('Error saving PDF: ' + err.message);
     } finally {
       setSaving(false);
     }
@@ -168,26 +171,27 @@ export default function PdfEditor({ pdfBytes, originalFile, onClose }) {
 
   return (
     <div className="editor-container" style={{ marginTop: '20px', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-      <div className="editor-toolbar-custom" style={{ padding: '15px', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-        <h3 style={{ margin: 0 }}>Editing PDF: {originalFile.name}</h3>
-        
-        <div className="editor-tools" style={{ display: 'flex', gap: '5px' }}>
-          <button className={`btn ${activeTool === 'select' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('select')} title="Select"><MousePointer2 size={18} /></button>
-          <button className={`btn ${activeTool === 'text' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('text')} title="Add Text"><Type size={18} /></button>
-          <button className={`btn ${activeTool === 'draw' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('draw')} title="Draw/Sign"><PenTool size={18} /></button>
-          <button className={`btn ${activeTool === 'highlight' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('highlight')} title="Highlight"><Highlighter size={18} /></button>
+      <div className="editor-toolbar-custom" style={{ padding: '12px 16px', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+        <h3 style={{ margin: 0, fontSize: '1rem' }}>📄 {originalFile.name}</h3>
+
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button className={`btn ${activeTool === 'select' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('select')} title="Select"><MousePointer2 size={16} /></button>
+          <button className={`btn ${activeTool === 'text' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('text')} title="Add Text"><Type size={16} /></button>
+          <button className={`btn ${activeTool === 'draw' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('draw')} title="Draw / Sign"><PenTool size={16} /></button>
+          <button className={`btn ${activeTool === 'highlight' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('highlight')} title="Highlight"><Highlighter size={16} /></button>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button className="btn btn-secondary" onClick={onClose}><X size={18} /> Cancel</button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-secondary" onClick={onClose}><X size={16} /> Close</button>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : <><Download size={18} /> Save & Download</>}
+            {saving ? 'Saving...' : <><Download size={16} /> Save PDF</>}
           </button>
         </div>
       </div>
-      
-      <div className="editor-workspace" style={{ backgroundColor: '#e9ecef', padding: '20px', display: 'flex', justifyContent: 'center', overflow: 'auto', minHeight: '600px' }}>
-        <div ref={containerRef} style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.15)', backgroundColor: 'white' }}></div>
+
+      <div style={{ backgroundColor: 'var(--bg-card)', padding: '20px', display: 'flex', justifyContent: 'center', overflow: 'auto', maxHeight: '75vh' }}>
+        {!loaded && <p style={{ padding: '40px', opacity: 0.6 }}>Loading PDF...</p>}
+        <div ref={containerRef} style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.18)', lineHeight: 0 }}></div>
       </div>
     </div>
   );
