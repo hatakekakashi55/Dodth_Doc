@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
-import { Download, X } from 'lucide-react';
+import { Download, X, RotateCcw } from 'lucide-react';
 
 export default function RichTextEditor({ initialHtml, originalFile, onClose }) {
   const [content, setContent] = useState(initialHtml || '');
   const [saving, setSaving] = useState(false);
+  const [saveFormat, setSaveFormat] = useState('docx'); // docx or pdf
 
   const handleSave = async () => {
     setSaving(true);
@@ -13,7 +14,15 @@ export default function RichTextEditor({ initialHtml, originalFile, onClose }) {
       const fullHtml = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>${originalFile.name}</title>
-<style>body{font-family:Arial,sans-serif;line-height:1.6;margin:40px;color:#222}p{margin-bottom:10px}h1,h2,h3{color:#333}</style>
+<style>
+body { font-family: Arial, Helvetica, sans-serif; line-height: 1.6; margin: 40px; color: #222; }
+p { margin-bottom: 10px; }
+h1 { font-size: 24px; color: #111; margin-bottom: 16px; }
+h2 { font-size: 20px; color: #222; margin-bottom: 12px; }
+h3 { font-size: 16px; color: #333; margin-bottom: 10px; }
+ul, ol { margin-left: 20px; margin-bottom: 12px; }
+blockquote { border-left: 3px solid #ccc; padding-left: 12px; color: #555; margin: 12px 0; }
+</style>
 </head>
 <body>${content}</body>
 </html>`;
@@ -26,12 +35,17 @@ export default function RichTextEditor({ initialHtml, originalFile, onClose }) {
 
       const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
       const baseUrl = isNative ? 'https://dodth-doc.onrender.com' : '';
-      const response = await fetch(baseUrl + '/api/convert/html-to-word', {
+
+      const endpoint = saveFormat === 'docx'
+        ? '/api/convert/html-to-word'
+        : '/api/convert/html-to-pdf';
+
+      const response = await fetch(baseUrl + endpoint, {
         method: 'POST',
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Failed to save document');
+      if (!response.ok) throw new Error('Server error during save');
 
       const resultBlob = await response.blob();
       const downloadUrl = URL.createObjectURL(resultBlob);
@@ -39,46 +53,64 @@ export default function RichTextEditor({ initialHtml, originalFile, onClose }) {
 
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = `${baseName}_edited.docx`;
+      link.download = `${baseName}_edited.${saveFormat}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(downloadUrl);
     } catch (err) {
-      alert('Error saving document: ' + err.message);
+      alert('Error saving: ' + err.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const modules = {
+  // Memoize modules to prevent Quill re-render loops
+  const modules = useMemo(() => ({
     toolbar: [
       [{ header: [1, 2, 3, false] }],
       ['bold', 'italic', 'underline', 'strike'],
       [{ color: [] }, { background: [] }],
       [{ list: 'ordered' }, { list: 'bullet' }],
       [{ align: [] }],
-      ['blockquote', 'code-block'],
+      [{ indent: '-1' }, { indent: '+1' }],
+      ['blockquote'],
       ['link'],
       ['clean'],
     ],
-  };
+  }), []);
 
   return (
-    <div className="editor-container" style={{ marginTop: '20px', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-      {/* Toolbar header */}
+    <div style={{ marginTop: '16px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+      {/* Header bar */}
       <div style={{ padding: '12px 16px', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>📝 {originalFile.name}</h3>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="btn btn-secondary" onClick={onClose}><X size={16} /> Close</button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : <><Download size={16} /> Save as DOCX</>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+          <span style={{ fontSize: '1.2rem' }}>📝</span>
+          <span style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>{originalFile.name}</span>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <select
+            value={saveFormat}
+            onChange={(e) => setSaveFormat(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontFamily: 'var(--font)', fontSize: '0.85rem', cursor: 'pointer' }}
+          >
+            <option value="docx">Save as DOCX</option>
+            <option value="pdf">Save as PDF</option>
+          </select>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ padding: '8px 20px' }}>
+            {saving ? 'Saving...' : <><Download size={16} /> Download</>}
+          </button>
+          <button className="btn btn-secondary" onClick={() => setContent(initialHtml)} style={{ padding: '8px 14px' }} title="Reset to original">
+            <RotateCcw size={16} />
+          </button>
+          <button className="btn btn-secondary" onClick={onClose} style={{ padding: '8px 14px' }}>
+            <X size={16} /> Close
           </button>
         </div>
       </div>
 
-      {/* Quill editor */}
-      <div className="quill-wrapper">
+      {/* Quill Editor */}
+      <div className="dodth-quill-editor">
         <ReactQuill
           theme="snow"
           value={content}
@@ -87,35 +119,69 @@ export default function RichTextEditor({ initialHtml, originalFile, onClose }) {
         />
       </div>
 
-      {/* Scoped styles to make Quill look correct inside our dark theme */}
+      {/* Scoped Quill styles */}
       <style>{`
-        .quill-wrapper {
+        .dodth-quill-editor {
           background: #fff;
         }
-        .quill-wrapper .ql-toolbar.ql-snow {
-          border: none;
-          border-bottom: 1px solid #e2e8f0;
+        .dodth-quill-editor .ql-toolbar.ql-snow {
+          border: none !important;
+          border-bottom: 1px solid #e2e8f0 !important;
           background: #f8fafc;
+          padding: 10px 12px;
           position: sticky;
           top: 0;
           z-index: 10;
         }
-        .quill-wrapper .ql-container.ql-snow {
-          border: none;
-          font-size: 16px;
-          min-height: 500px;
-          max-height: 70vh;
-          overflow-y: auto;
+        .dodth-quill-editor .ql-toolbar .ql-stroke {
+          stroke: #374151 !important;
         }
-        .quill-wrapper .ql-editor {
+        .dodth-quill-editor .ql-toolbar .ql-fill {
+          fill: #374151 !important;
+        }
+        .dodth-quill-editor .ql-toolbar .ql-picker-label {
+          color: #374151 !important;
+        }
+        .dodth-quill-editor .ql-toolbar button:hover .ql-stroke,
+        .dodth-quill-editor .ql-toolbar .ql-active .ql-stroke {
+          stroke: var(--accent) !important;
+        }
+        .dodth-quill-editor .ql-toolbar button:hover .ql-fill,
+        .dodth-quill-editor .ql-toolbar .ql-active .ql-fill {
+          fill: var(--accent) !important;
+        }
+        .dodth-quill-editor .ql-container.ql-snow {
+          border: none !important;
+          font-size: 16px;
+        }
+        .dodth-quill-editor .ql-editor {
           min-height: 500px;
-          padding: 30px 40px;
+          max-height: 65vh;
+          overflow-y: auto;
+          padding: 32px 40px;
           color: #1a1a1a;
           line-height: 1.8;
+          font-family: 'Georgia', 'Times New Roman', serif;
         }
-        .quill-wrapper .ql-editor p,
-        .quill-wrapper .ql-editor li {
+        .dodth-quill-editor .ql-editor h1,
+        .dodth-quill-editor .ql-editor h2,
+        .dodth-quill-editor .ql-editor h3 {
+          font-family: 'Inter', Arial, sans-serif;
+          color: #111;
+        }
+        .dodth-quill-editor .ql-editor p {
           margin-bottom: 8px;
+        }
+        .dodth-quill-editor .ql-editor blockquote {
+          border-left: 3px solid #6366f1;
+          padding-left: 14px;
+          color: #555;
+        }
+        @media (max-width: 600px) {
+          .dodth-quill-editor .ql-editor {
+            padding: 16px 18px;
+            min-height: 350px;
+          }
         }
       `}</style>
     </div>

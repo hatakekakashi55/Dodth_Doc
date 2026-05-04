@@ -1,34 +1,38 @@
 import React, { useState, useRef } from 'react';
-import { ArrowLeft, UploadCloud, File, FileText } from 'lucide-react';
+import { ArrowLeft, UploadCloud, FileText, FileType, File } from 'lucide-react';
 import mammoth from 'mammoth';
 import RichTextEditor from '../components/RichTextEditor.jsx';
 import PdfEditor from '../components/PdfEditor.jsx';
 
 export default function LiveEditorPage({ onBack }) {
   const [file, setFile] = useState(null);
-  const [editorType, setEditorType] = useState(null); // 'rich-text' or 'pdf'
-  const [content, setContent] = useState(''); // Initial content for rich text
-  const [pdfBytes, setPdfBytes] = useState(null); // ArrayBuffer for PDF
+  const [editorType, setEditorType] = useState(null);
+  const [content, setContent] = useState('');
+  const [pdfBytes, setPdfBytes] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const fileInput = useRef(null);
 
   const handleFileSelect = async (e) => {
-    const selectedFile = e.target.files[0];
+    const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
     setLoading(true);
+    setError('');
     try {
       const ext = selectedFile.name.split('.').pop().toLowerCase();
-      
-      if (ext === 'docx') {
+
+      if (ext === 'docx' || ext === 'doc') {
         const arrayBuffer = await selectedFile.arrayBuffer();
         const result = await mammoth.convertToHtml({ arrayBuffer });
         setContent(result.value);
         setEditorType('rich-text');
       } else if (ext === 'txt') {
         const text = await selectedFile.text();
-        // Convert plain text to simple HTML paragraphs
-        const html = text.split('\n').map(line => `<p>${line}</p>`).join('');
+        const html = text
+          .split('\n')
+          .map((line) => (line.trim() ? `<p>${line}</p>` : '<p><br></p>'))
+          .join('');
         setContent(html);
         setEditorType('rich-text');
       } else if (ext === 'pdf') {
@@ -36,66 +40,104 @@ export default function LiveEditorPage({ onBack }) {
         setPdfBytes(arrayBuffer);
         setEditorType('pdf');
       } else {
-        alert("Unsupported file type. Please upload PDF, DOCX, or TXT.");
+        setError('Unsupported file. Please upload PDF, DOCX, or TXT.');
+        return;
       }
-      
+
       setFile(selectedFile);
     } catch (err) {
-      alert("Error loading file: " + err.message);
+      console.error('File load error:', err);
+      setError('Failed to load file: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleClose = () => {
+    setEditorType(null);
+    setFile(null);
+    setPdfBytes(null);
+    setContent('');
+    setError('');
+    // Reset file input so same file can be re-uploaded
+    if (fileInput.current) fileInput.current.value = '';
+  };
+
+  const getFileIcon = () => {
+    if (!file) return <UploadCloud size={48} />;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext === 'pdf') return <File size={48} />;
+    if (ext === 'docx' || ext === 'doc') return <FileType size={48} />;
+    return <FileText size={48} />;
+  };
+
   return (
-    <div className="tool-page" style={{ maxWidth: '1000px', margin: '0 auto' }}>
-      <div className="tool-header">
-        <button className="back-btn" onClick={onBack}><ArrowLeft size={20} /> Back</button>
-        <div className="tool-title-group">
-          <div className="tool-icon" style={{ '--tool-color': 'var(--primary)' }}><FileText size={24} /></div>
-          <div>
-            <h2>Live Document Editor</h2>
-            <p>Upload a PDF, Word, or TXT file to edit it directly in the browser.</p>
-          </div>
-        </div>
+    <div className="tool-page">
+      {/* Header */}
+      <button className="back-btn" onClick={onBack}>
+        <ArrowLeft size={18} /> Back to Dashboard
+      </button>
+
+      <div style={{ marginBottom: '2rem' }}>
+        <h2 style={{ fontSize: '1.6rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+          ✏️ Live Document Editor
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+          Upload a PDF, Word, or TXT file to edit it directly in the browser.
+        </p>
       </div>
 
+      {/* Upload Zone - only show when no editor is active */}
       {!editorType && !loading && (
-        <div className="upload-section">
-          <input 
-            type="file" 
-            ref={fileInput} 
-            onChange={handleFileSelect} 
-            accept=".pdf,.docx,.txt" 
-            style={{ display: 'none' }} 
+        <>
+          <input
+            type="file"
+            ref={fileInput}
+            onChange={handleFileSelect}
+            accept=".pdf,.docx,.doc,.txt"
+            style={{ display: 'none' }}
           />
-          <div className="drop-zone" onClick={() => fileInput.current.click()}>
-            <UploadCloud size={48} />
-            <p>Click to browse or drag file here</p>
-            <small>Supports PDF, DOCX, TXT</small>
+          <div
+            className="dropzone"
+            onClick={() => fileInput.current?.click()}
+          >
+            <div className="dropzone-icon">{getFileIcon()}</div>
+            <h3>Click to browse or drag file here</h3>
+            <p>Supports <span className="browse-link">PDF</span>, <span className="browse-link">DOCX</span>, <span className="browse-link">TXT</span></p>
           </div>
-        </div>
+
+          {error && (
+            <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,0.1)', border: '1px solid var(--danger)', borderRadius: 'var(--radius-sm)', color: 'var(--danger)', marginTop: '12px', fontSize: '0.9rem' }}>
+              {error}
+            </div>
+          )}
+        </>
       )}
 
+      {/* Loading */}
       {loading && (
-        <div className="loading-state" style={{ padding: '40px', textAlign: 'center' }}>
-          <p>Loading document into editor...</p>
+        <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+          <div style={{ width: '40px', height: '40px', border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', margin: '0 auto 16px', animation: 'spin 0.8s linear infinite' }} />
+          <p style={{ color: 'var(--text-secondary)' }}>Loading document...</p>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
 
+      {/* Rich Text Editor */}
       {editorType === 'rich-text' && (
-        <RichTextEditor 
-          initialHtml={content} 
-          originalFile={file} 
-          onClose={() => { setEditorType(null); setFile(null); }}
+        <RichTextEditor
+          initialHtml={content}
+          originalFile={file}
+          onClose={handleClose}
         />
       )}
 
+      {/* PDF Editor */}
       {editorType === 'pdf' && (
-        <PdfEditor 
-          pdfBytes={pdfBytes} 
-          originalFile={file} 
-          onClose={() => { setEditorType(null); setFile(null); }}
+        <PdfEditor
+          pdfBytes={pdfBytes}
+          originalFile={file}
+          onClose={handleClose}
         />
       )}
     </div>

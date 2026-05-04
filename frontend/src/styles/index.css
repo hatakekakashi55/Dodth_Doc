@@ -32,6 +32,7 @@
   --compress: #F59E0B; --word-pdf: #2563EB; --pdf-word: #D97706;
   --excel-pdf: #059669; --ppt-pdf: #DC2626; --jpg-pdf: #0284C7;
   --pdf-jpg: #D97706; --protect: #DC2626; --unlock: #059669; --watermark: #6366F1;
+  --primary: #6366F1;
 }
 
 [data-theme="light"] {

@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { Canvas as FabricCanvas, IText, PencilBrush, FabricImage } from 'fabric';
 import { PDFDocument } from 'pdf-lib';
-import { Download, X, Type, PenTool, Highlighter, MousePointer2 } from 'lucide-react';
+import { Download, X, Type, PenTool, Highlighter, MousePointer2, ChevronLeft, ChevronRight, Eraser } from 'lucide-react';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -12,15 +12,85 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 
 export default function PdfEditor({ pdfBytes, originalFile, onClose }) {
   const containerRef = useRef(null);
-  const canvasRef = useRef(null); // Fabric canvas instance
-  const [pdfDoc, setPdfDoc] = useState(null);
+  const canvasRef = useRef(null);
+  const pdfRef = useRef(null);
+  const annotationsRef = useRef({}); // Store annotations per page
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [saving, setSaving] = useState(false);
   const [activeTool, setActiveTool] = useState('select');
   const [loaded, setLoaded] = useState(false);
+  const [scale, setScale] = useState(1.2);
 
-  // Initialize PDF and Canvas
+  // Render a specific page
+  const renderPage = useCallback(async (pageNum) => {
+    const pdf = pdfRef.current;
+    if (!pdf || !containerRef.current) return;
+
+    try {
+      // Save current annotations before switching pages
+      if (canvasRef.current) {
+        const currentAnnotations = canvasRef.current.toJSON();
+        annotationsRef.current[currentPage] = currentAnnotations;
+        canvasRef.current.dispose();
+        canvasRef.current = null;
+      }
+
+      const page = await pdf.getPage(pageNum);
+
+      // Calculate scale to fit container width (max ~700px on desktop)
+      const containerWidth = Math.min(containerRef.current.parentElement.clientWidth - 40, 750);
+      const naturalViewport = page.getViewport({ scale: 1 });
+      const fitScale = containerWidth / naturalViewport.width;
+      const useScale = Math.min(fitScale, 1.5);
+      setScale(useScale);
+
+      const viewport = page.getViewport({ scale: useScale });
+
+      // Render PDF page to offscreen canvas
+      const offscreen = document.createElement('canvas');
+      offscreen.width = viewport.width;
+      offscreen.height = viewport.height;
+      const ctx = offscreen.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      // Create Fabric canvas
+      containerRef.current.innerHTML = '';
+      const el = document.createElement('canvas');
+      el.id = 'pdf-fabric-canvas';
+      containerRef.current.appendChild(el);
+
+      const fc = new FabricCanvas(el, {
+        width: viewport.width,
+        height: viewport.height,
+      });
+
+      // Set PDF render as background
+      const dataUrl = offscreen.toDataURL('image/png');
+      const bgImg = await FabricImage.fromURL(dataUrl);
+      bgImg.scaleX = viewport.width / bgImg.width;
+      bgImg.scaleY = viewport.height / bgImg.height;
+      fc.backgroundImage = bgImg;
+
+      // Restore previous annotations for this page
+      if (annotationsRef.current[pageNum]) {
+        const saved = annotationsRef.current[pageNum];
+        if (saved.objects && saved.objects.length > 0) {
+          await fc.loadFromJSON(saved);
+          // Re-set background since loadFromJSON may clear it
+          fc.backgroundImage = bgImg;
+        }
+      }
+
+      fc.renderAll();
+      canvasRef.current = fc;
+      setLoaded(true);
+    } catch (err) {
+      console.error('Error rendering page:', err);
+    }
+  }, [currentPage]);
+
+  // Initialize PDF
   useEffect(() => {
     let disposed = false;
 
@@ -29,49 +99,11 @@ export default function PdfEditor({ pdfBytes, originalFile, onClose }) {
         const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(pdfBytes) });
         const pdf = await loadingTask.promise;
         if (disposed) return;
-        setPdfDoc(pdf);
+        pdfRef.current = pdf;
         setTotalPages(pdf.numPages);
-
-        // Render first page
-        const page = await pdf.getPage(1);
-        const viewport = page.getViewport({ scale: 1.5 });
-
-        // Render PDF page to an offscreen canvas
-        const offscreen = document.createElement('canvas');
-        offscreen.width = viewport.width;
-        offscreen.height = viewport.height;
-        const ctx = offscreen.getContext('2d');
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        if (disposed) return;
-
-        // Create Fabric canvas
-        if (containerRef.current) {
-          containerRef.current.innerHTML = '';
-          const el = document.createElement('canvas');
-          el.id = 'pdf-fabric-canvas';
-          el.width = viewport.width;
-          el.height = viewport.height;
-          containerRef.current.appendChild(el);
-
-          const fc = new FabricCanvas('pdf-fabric-canvas', {
-            width: viewport.width,
-            height: viewport.height,
-          });
-
-          // Set PDF render as background image
-          const dataUrl = offscreen.toDataURL('image/png');
-          const bgImg = await FabricImage.fromURL(dataUrl);
-          bgImg.scaleX = viewport.width / bgImg.width;
-          bgImg.scaleY = viewport.height / bgImg.height;
-          fc.backgroundImage = bgImg;
-          fc.renderAll();
-
-          canvasRef.current = fc;
-          setLoaded(true);
-        }
+        await renderPage(1);
       } catch (err) {
         console.error('Error loading PDF:', err);
-        alert('Could not load PDF for editing.');
       }
     };
 
@@ -85,6 +117,11 @@ export default function PdfEditor({ pdfBytes, originalFile, onClose }) {
       }
     };
   }, [pdfBytes]);
+
+  // Re-render when page changes
+  useEffect(() => {
+    if (pdfRef.current) renderPage(currentPage);
+  }, [currentPage]);
 
   // Handle Tool Changes
   useEffect(() => {
@@ -107,13 +144,13 @@ export default function PdfEditor({ pdfBytes, originalFile, onClose }) {
       fc.freeDrawingBrush.width = 20;
     } else if (activeTool === 'text') {
       fc.selection = false;
-      fc.on('mouse:down', (o) => {
-        const pointer = fc.getScenePoint(o.e);
+      const handler = (o) => {
+        const pointer = fc.getViewportPoint(o.e);
         const text = new IText('Type here...', {
           left: pointer.x,
           top: pointer.y,
           fontFamily: 'Arial',
-          fontSize: 22,
+          fontSize: Math.round(18 * scale),
           fill: '#1a56db',
         });
         fc.add(text);
@@ -121,34 +158,89 @@ export default function PdfEditor({ pdfBytes, originalFile, onClose }) {
         text.enterEditing();
         text.selectAll();
         setActiveTool('select');
-      });
+      };
+      fc.on('mouse:down', handler);
+    } else if (activeTool === 'erase') {
+      fc.selection = false;
+      const handler = (o) => {
+        const target = fc.findTarget(o.e);
+        if (target && target !== fc.backgroundImage) {
+          fc.remove(target);
+          fc.renderAll();
+        }
+      };
+      fc.on('mouse:down', handler);
     }
-  }, [activeTool, loaded]);
+  }, [activeTool, loaded, scale]);
 
+  // Delete selected objects
+  const handleDelete = () => {
+    const fc = canvasRef.current;
+    if (!fc) return;
+    const active = fc.getActiveObjects();
+    active.forEach(obj => fc.remove(obj));
+    fc.discardActiveObject();
+    fc.renderAll();
+  };
+
+  // Save: apply annotations to PDF on all pages
   const handleSave = async () => {
     const fc = canvasRef.current;
     if (!fc) return;
     setSaving(true);
     try {
-      // Export annotations only (remove background temporarily)
-      const bg = fc.backgroundImage;
-      fc.backgroundImage = null;
-      fc.renderAll();
-      const overlayDataUrl = fc.toDataURL({ format: 'png', multiplier: 1 });
-      fc.backgroundImage = bg;
-      fc.renderAll();
+      // Save current page annotations
+      annotationsRef.current[currentPage] = fc.toJSON();
 
-      // Load original PDF
       const pdfDocLib = await PDFDocument.load(pdfBytes);
-      const pages = pdfDocLib.getPages();
-      const pageToEdit = pages[currentPage - 1];
+      const pdf = pdfRef.current;
 
-      // Embed overlay
-      const overlayBytes = await fetch(overlayDataUrl).then(r => r.arrayBuffer());
-      const embeddedImage = await pdfDocLib.embedPng(overlayBytes);
+      // Process each page that has annotations
+      for (let i = 1; i <= totalPages; i++) {
+        const pageAnnotations = annotationsRef.current[i];
+        if (!pageAnnotations || !pageAnnotations.objects || pageAnnotations.objects.length === 0) continue;
 
-      const { width, height } = pageToEdit.getSize();
-      pageToEdit.drawImage(embeddedImage, { x: 0, y: 0, width, height });
+        // Render the page annotations to a temp canvas
+        const page = await pdf.getPage(i);
+        const naturalViewport = page.getViewport({ scale: 1 });
+        const containerWidth = Math.min(750, 750);
+        const fitScale = containerWidth / naturalViewport.width;
+        const useScale = Math.min(fitScale, 1.5);
+        const viewport = page.getViewport({ scale: useScale });
+
+        // Create temp fabric canvas to render annotations
+        const tempEl = document.createElement('canvas');
+        tempEl.id = 'temp-export-canvas';
+        tempEl.style.display = 'none';
+        document.body.appendChild(tempEl);
+
+        const tempFc = new FabricCanvas(tempEl, {
+          width: viewport.width,
+          height: viewport.height,
+        });
+
+        await tempFc.loadFromJSON(pageAnnotations);
+        tempFc.backgroundImage = null;
+        tempFc.renderAll();
+
+        const overlayDataUrl = tempFc.toDataURL({ format: 'png' });
+        tempFc.dispose();
+        document.body.removeChild(tempEl);
+
+        // Embed overlay on PDF page
+        const overlayBytes = await fetch(overlayDataUrl).then(r => r.arrayBuffer());
+        const embeddedImage = await pdfDocLib.embedPng(overlayBytes);
+        const pdfPage = pdfDocLib.getPages()[i - 1];
+        const { width, height } = pdfPage.getSize();
+
+        // Scale overlay to match original PDF dimensions
+        pdfPage.drawImage(embeddedImage, {
+          x: 0,
+          y: 0,
+          width: width,
+          height: height,
+        });
+      }
 
       // Download
       const modifiedBytes = await pdfDocLib.save();
@@ -163,35 +255,88 @@ export default function PdfEditor({ pdfBytes, originalFile, onClose }) {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (err) {
+      console.error('Save error:', err);
       alert('Error saving PDF: ' + err.message);
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <div className="editor-container" style={{ marginTop: '20px', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-      <div className="editor-toolbar-custom" style={{ padding: '12px 16px', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>📄 {originalFile.name}</h3>
+  const goPage = (dir) => {
+    const next = currentPage + dir;
+    if (next >= 1 && next <= totalPages) {
+      setLoaded(false);
+      setCurrentPage(next);
+    }
+  };
 
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button className={`btn ${activeTool === 'select' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('select')} title="Select"><MousePointer2 size={16} /></button>
-          <button className={`btn ${activeTool === 'text' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('text')} title="Add Text"><Type size={16} /></button>
-          <button className={`btn ${activeTool === 'draw' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('draw')} title="Draw / Sign"><PenTool size={16} /></button>
-          <button className={`btn ${activeTool === 'highlight' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTool('highlight')} title="Highlight"><Highlighter size={16} /></button>
+  return (
+    <div style={{ marginTop: '16px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+      {/* Toolbar */}
+      <div style={{ padding: '10px 16px', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+        {/* File name */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          <span style={{ fontSize: '1.1rem' }}>📄</span>
+          <span style={{ fontWeight: 600, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '160px' }}>{originalFile.name}</span>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="btn btn-secondary" onClick={onClose}><X size={16} /> Close</button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : <><Download size={16} /> Save PDF</>}
+        {/* Drawing tools */}
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {[
+            { id: 'select', icon: <MousePointer2 size={16} />, title: 'Select' },
+            { id: 'text', icon: <Type size={16} />, title: 'Add Text' },
+            { id: 'draw', icon: <PenTool size={16} />, title: 'Draw / Sign' },
+            { id: 'highlight', icon: <Highlighter size={16} />, title: 'Highlight' },
+            { id: 'erase', icon: <Eraser size={16} />, title: 'Erase Object' },
+          ].map(t => (
+            <button
+              key={t.id}
+              className={`btn ${activeTool === t.id ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setActiveTool(t.id)}
+              title={t.title}
+              style={{ padding: '8px 10px' }}
+            >
+              {t.icon}
+            </button>
+          ))}
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ padding: '8px 16px' }}>
+            {saving ? 'Saving...' : <><Download size={16} /> Save</>}
+          </button>
+          <button className="btn btn-secondary" onClick={onClose} style={{ padding: '8px 12px' }}>
+            <X size={16} />
           </button>
         </div>
       </div>
 
-      <div style={{ backgroundColor: 'var(--bg-card)', padding: '20px', display: 'flex', justifyContent: 'center', overflow: 'auto', maxHeight: '75vh' }}>
-        {!loaded && <p style={{ padding: '40px', opacity: 0.6 }}>Loading PDF...</p>}
-        <div ref={containerRef} style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.18)', lineHeight: 0 }}></div>
+      {/* Page navigation */}
+      {totalPages > 1 && (
+        <div style={{ padding: '8px 16px', backgroundColor: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>
+          <button className="btn btn-secondary" onClick={() => goPage(-1)} disabled={currentPage <= 1} style={{ padding: '6px 10px' }}>
+            <ChevronLeft size={16} />
+          </button>
+          <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+            Page {currentPage} of {totalPages}
+          </span>
+          <button className="btn btn-secondary" onClick={() => goPage(1)} disabled={currentPage >= totalPages} style={{ padding: '6px 10px' }}>
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Canvas area */}
+      <div style={{ backgroundColor: '#2a2d38', padding: '20px', display: 'flex', justifyContent: 'center', overflow: 'auto', maxHeight: '72vh' }}>
+        {!loaded && (
+          <div style={{ padding: '60px', textAlign: 'center' }}>
+            <div style={{ width: '36px', height: '36px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--accent)', borderRadius: '50%', margin: '0 auto 12px', animation: 'spin 0.8s linear infinite' }} />
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Rendering page...</p>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
+        <div ref={containerRef} style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.3)', lineHeight: 0, display: loaded ? 'block' : 'none' }}></div>
       </div>
     </div>
   );
