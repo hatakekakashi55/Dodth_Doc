@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { getToolById, formatFileSize } from '../utils/tools.jsx';
 import { CheckCircle, XCircle, File, FolderUp, ArrowLeft, X } from 'lucide-react';
 
@@ -7,11 +7,60 @@ export default function ToolPage({ toolId, onBack }) {
   const [files, setFiles] = useState([]);
   const [status, setStatus] = useState('idle');
   const [progress, setProgress] = useState(0);
+  const [progressPhase, setProgressPhase] = useState('idle');
   const [error, setError] = useState('');
   const [resultBlob, setResultBlob] = useState(null);
   const [resultName, setResultName] = useState('');
   const [extra, setExtra] = useState({ password: '', pages: 'all', angle: '90', text: '', opacity: '0.3' });
   const inputRef = useRef(null);
+  const progressTimer = useRef(null);
+
+  // Smooth progress animation
+  useEffect(() => {
+    if (progressTimer.current) clearInterval(progressTimer.current);
+
+    if (progressPhase === 'uploading') {
+      // Quickly go from 0 to ~25%
+      setProgress(5);
+      progressTimer.current = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 25) { clearInterval(progressTimer.current); return 25; }
+          return prev + 1.5;
+        });
+      }, 80);
+    } else if (progressPhase === 'processing') {
+      // Slowly crawl from 25% to ~85% (server is working)
+      progressTimer.current = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 85) { clearInterval(progressTimer.current); return 85; }
+          // Slow down as it gets higher
+          const speed = prev < 50 ? 0.8 : prev < 70 ? 0.4 : 0.15;
+          return prev + speed;
+        });
+      }, 200);
+    } else if (progressPhase === 'finalizing') {
+      // Quick jump from current to 95%
+      progressTimer.current = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 95) { clearInterval(progressTimer.current); return 95; }
+          return prev + 2;
+        });
+      }, 50);
+    } else if (progressPhase === 'done') {
+      setProgress(100);
+    }
+
+    return () => { if (progressTimer.current) clearInterval(progressTimer.current); };
+  }, [progressPhase]);
+
+  const getProgressText = useCallback(() => {
+    if (progress < 20) return '📤 Uploading file...';
+    if (progress < 40) return '⚙️ Starting conversion...';
+    if (progress < 60) return '🔄 Processing document...';
+    if (progress < 80) return '📝 Applying formatting...';
+    if (progress < 95) return '✨ Almost there...';
+    return '✅ Finishing up...';
+  }, [progress]);
   const dropRef = useRef(null);
 
   if (!tool) return <div className="tool-page"><p>Tool not found.</p></div>;
@@ -30,7 +79,8 @@ export default function ToolPage({ toolId, onBack }) {
   const handleProcess = async () => {
     if (files.length === 0) return;
     setStatus('uploading');
-    setProgress(10);
+    setProgress(0);
+    setProgressPhase('uploading');
     setError('');
 
     try {
@@ -45,15 +95,17 @@ export default function ToolPage({ toolId, onBack }) {
       if (tool.hasAngle) formData.append('angle', extra.angle);
       if (tool.hasWatermark) { formData.append('text', extra.text); formData.append('opacity', extra.opacity); }
 
-      setProgress(30);
-      
       // Determine base URL (Use Render directly for APK/Native)
       const isNative = window.Capacitor && window.Capacitor.isNativePlatform();
       const baseUrl = isNative ? 'https://dodth-doc.onrender.com' : '';
       const fullEndpoint = baseUrl + tool.endpoint;
 
+      // Phase 2: Server processing
+      setProgressPhase('processing');
       const response = await fetch(fullEndpoint, { method: 'POST', body: formData });
-      setProgress(70);
+
+      // Phase 3: Finalizing
+      setProgressPhase('finalizing');
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({ detail: 'Processing failed' }));
@@ -80,9 +132,10 @@ export default function ToolPage({ toolId, onBack }) {
 
       setResultBlob(blob);
       setResultName(filename);
-      setProgress(100);
-      setStatus('done');
+      setProgressPhase('done');
+      setTimeout(() => setStatus('done'), 400);
     } catch (err) {
+      setProgressPhase('idle');
       setError(err.message);
       setStatus('error');
     }
@@ -130,7 +183,7 @@ export default function ToolPage({ toolId, onBack }) {
     }
   };
 
-  const reset = () => { setFiles([]); setStatus('idle'); setProgress(0); setError(''); setResultBlob(null); };
+  const reset = () => { setFiles([]); setStatus('idle'); setProgress(0); setProgressPhase('idle'); setError(''); setResultBlob(null); };
 
   const canProcess = files.length > 0 && !(tool.hasPassword && !extra.password) && !(tool.hasWatermark && !extra.text);
 
@@ -213,8 +266,8 @@ export default function ToolPage({ toolId, onBack }) {
 
           {status === 'uploading' && (
             <div className="progress-container">
-              <div className="progress-bar-track"><div className="progress-bar-fill" style={{ width: `${progress}%` }}></div></div>
-              <div className="progress-text">Processing... {progress}%</div>
+              <div className="progress-bar-track"><div className="progress-bar-fill" style={{ width: `${Math.round(progress)}%`, transition: 'width 0.3s ease-out' }}></div></div>
+              <div className="progress-text">{getProgressText()} <span style={{ opacity: 0.6 }}>{Math.round(progress)}%</span></div>
             </div>
           )}
           {status === 'error' && (
