@@ -6,12 +6,13 @@ import {
 } from 'lucide-react';
 
 export const TOOL_CATEGORIES = [
-  {
-    title: 'Live Editing',
-    tools: [
-      { id: 'live-editor', name: 'Live Editor', desc: 'Edit PDF & Word directly', icon: <Edit3 size={24} />, color: 'var(--primary)', accept: '.pdf,.docx,.txt', endpoint: '', single: true, isEditor: true },
-    ],
-  },
+  // NOTE: Live Editor hidden for now — uncomment when ready
+  // {
+  //   title: 'Live Editing',
+  //   tools: [
+  //     { id: 'live-editor', name: 'Live Editor', desc: 'Edit PDF & Word directly', icon: <Edit3 size={24} />, color: 'var(--primary)', accept: '.pdf,.docx,.txt', endpoint: '', single: true, isEditor: true },
+  //   ],
+  // },
   {
     title: 'Convert to PDF',
     tools: [
