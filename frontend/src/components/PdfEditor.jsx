@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import * as pdfjsLib from 'pdfjs-dist/build/pdf';
+import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import * as fabric from 'fabric';
 import { PDFDocument } from 'pdf-lib';
 import { Save, Download, X, Type, PenTool, Highlighter, MousePointer2 } from 'lucide-react';
 
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Configure PDF.js worker using local Vite asset
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export default function PdfEditor({ pdfBytes, originalFile, onClose }) {
   const containerRef = useRef(null);

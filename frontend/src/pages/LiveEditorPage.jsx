@@ -48,7 +48,7 @@ export default function LiveEditorPage({ onBack }) {
   };
 
   return (
-    <div className="tool-page" style={{ maxWidth: '1000px' }}>
+    <div className="tool-page" style={{ maxWidth: '1000px', margin: '0 auto' }}>
       <div className="tool-header">
         <button className="back-btn" onClick={onBack}><ArrowLeft size={20} /> Back</button>
         <div className="tool-title-group">
