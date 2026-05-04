@@ -96,7 +96,12 @@ export default function PdfEditor({ pdfBytes, originalFile, onClose }) {
 
     const init = async () => {
       try {
-        const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(pdfBytes) });
+        const loadingTask = pdfjsLib.getDocument({
+          data: new Uint8Array(pdfBytes),
+          cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/cmaps/',
+          cMapPacked: true,
+          standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/standard_fonts/',
+        });
         const pdf = await loadingTask.promise;
         if (disposed) return;
         pdfRef.current = pdf;
