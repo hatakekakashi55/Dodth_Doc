@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sun, Moon } from 'lucide-react';
 import Dashboard from './pages/Dashboard.jsx';
 import ToolPage from './pages/ToolPage.jsx';
+import LiveEditorPage from './pages/LiveEditorPage.jsx';
 
 export default function App() {
   const [currentTool, setCurrentTool] = useState(null);
@@ -26,9 +27,11 @@ export default function App() {
         </div>
       </header>
       <main className="main-content">
-        {currentTool
-          ? <ToolPage toolId={currentTool} onBack={() => setCurrentTool(null)} />
-          : <Dashboard onSelectTool={setCurrentTool} />
+        {currentTool === 'live-editor' 
+          ? <LiveEditorPage onBack={() => setCurrentTool(null)} />
+          : currentTool
+            ? <ToolPage toolId={currentTool} onBack={() => setCurrentTool(null)} />
+            : <Dashboard onSelectTool={setCurrentTool} />
         }
       </main>
       <footer className="app-footer"><p>DODTH © 2026 — Document Utility Suite</p></footer>

@@ -190,6 +190,21 @@ router.post('/html-to-pdf', upload.single('file'), async (req, res) => {
   }
 });
 
+// --- HTML to Word (for Live Editor) ---
+router.post('/html-to-word', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ detail: 'No file uploaded' });
+    const outputDir = getOutputDir(req.sessionId);
+    const outputFilename = path.basename(req.file.originalname, path.extname(req.file.originalname)) + '.docx';
+    const outputPath = path.join(outputDir, outputFilename);
+    await converterService.htmlToWord(req.file.path, outputPath);
+    res.download(outputPath, outputFilename);
+  } catch (err) {
+    console.error('HTML to Word error:', err);
+    res.status(500).json({ detail: `Conversion failed: ${err.message}` });
+  }
+});
+
 // --- OCR ---
 router.post('/ocr', upload.single('file'), async (req, res) => {
   try {

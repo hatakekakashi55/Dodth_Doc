@@ -389,6 +389,22 @@ class ConverterService {
     }
   }
 
+  static async htmlToWord(htmlPath, outputPath) {
+    const { exec } = require('child_process');
+    const utilMod = require('util');
+    const execPromise = utilMod.promisify(exec);
+    const outDir = path.dirname(outputPath);
+
+    try {
+      const cmd = this._sofficeCmd(`--convert-to docx --outdir "${outDir}" "${htmlPath}"`);
+      await execPromise(cmd, { timeout: 120000 });
+      this._renameSofficeOutput(outDir, htmlPath, 'docx', outputPath);
+    } catch (err) {
+      console.error('HTML to Word Error:', err.message || err);
+      throw new Error('Failed to convert HTML to Word.');
+    }
+  }
+
   static async runOcr(inputPath, outputPath) {
     const { exec } = require('child_process');
     const utilMod = require('util');
