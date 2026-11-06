@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Processed outputs staged in cache, shared via FileProvider -->
+    <cache-path name="processing_cache" path="processing/" />
+    <cache-path name="ocr_cache" path="ocr/" />
+    <files-path name="history_outputs" path="history/" />
+</paths>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand palette (mirrors the Docs design language) -->
+    <color name="docs_background">#1A1C22</color>
+    <color name="docs_surface">#242731</color>
+    <color name="docs_surface_elevated">#2A2D38</color>
+    <color name="docs_accent">#6366F1</color>
+    <color name="docs_accent_light">#818CF8</color>
+    <color name="docs_text">#E1E1E6</color>
+    <color name="docs_text_secondary">#A1A3AB</color>
+    <color name="docs_success">#10B981</color>
+    <color name="docs_danger">#EF4444</color>
+    <color name="docs_warning">#F59E0B</color>
+</resources>

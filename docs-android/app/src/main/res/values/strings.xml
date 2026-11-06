@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Docs</string>
+    <string name="app_tagline">Document Utility Suite</string>
+    <string name="app_footer">© 2026 Docs — Document Utility Suite</string>
+</resources>

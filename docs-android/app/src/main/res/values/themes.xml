@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base window theme. Compose paints everything; this only decorates the
+         system chrome and removes the action bar. -->
+    <style name="Theme.Docs" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/docs_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/docs_background</item>
+        <item name="android:colorEdgeEffect">@color/docs_accent</item>
+    </style>
+</resources>
