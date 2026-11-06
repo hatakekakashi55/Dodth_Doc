@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- App-private history is backed up so users keep their recent outputs list -->
+    <include domain="file" path="history/" />
+</full-backup-content>

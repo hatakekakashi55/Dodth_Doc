@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand mark used inside the app (white glyph; tint/container supplied by caller) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M33,27 Q33,21 39,21 L57,21 L75,39 L75,87 Q75,93 69,93 L39,93 Q33,93 33,87 Z" />
+    <path
+        android:fillColor="#C9CBFC"
+        android:pathData="M55,21 L55,36 Q55,40 59,40 L75,40 Z" />
+    <path
+        android:pathData="M43,55 L65,55"
+        android:strokeColor="#4338CA"
+        android:strokeWidth="4.4"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M43,66 L65,66"
+        android:strokeColor="#4338CA"
+        android:strokeWidth="4.4"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M43,77 L58,77"
+        android:strokeColor="#4338CA"
+        android:strokeWidth="4.4"
+        android:strokeLineCap="round" />
+</vector>
